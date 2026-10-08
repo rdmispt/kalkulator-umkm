@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>OmsetPro: Kalkulator UMKM</title>
+  
+  <!-- PWA Requirements -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#09090b" />
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel untuk membaca kode React JSX di browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    
+    /* Mencegah zoom di HP saat mengetik di input */
+    input[type="text"], input[type="number"] { font-size: 16px; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-200 antialiased selection:bg-blue-500/30">
+  
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function OmsetProApp() {
+      const [activeTab, setActiveTab] = useState('hpp');
+      const [copySuccess, setCopySuccess] = useState(false);
+      const [saveSuccess, setSaveSuccess] = useState(false);
+      const [savedProducts, setSavedProducts] = useState([]);
+      
+      const [webhookUrl, setWebhookUrl] = useState('');
+      const [syncStatus, setSyncStatus] = useState('');
+      const [isLoadingData, setIsLoadingData] = useState(true);
+      const [isSaving, setIsSaving] = useState(false);
+
+      const [data, setData] = useState({
+        namaBarang: "", hargaJual: 100000, modalTarget: 25000, hppProduk: 40000, biayaLain: 3000,
+        adminShopee: 6.5, gratisOngkir: 4, diskonXtra: 0, komisiAffiliate: 5, biayaProses: 1250,
+        voucherToko: 0, jumlahKemasan: 20, isiPerKemasan: 30, akomodasi: 150000, pengaliMargin: 2,
+        qtyBundle: 3, diskonBundle: 5, qtyGrosir: 12, diskonGrosir: 10,
+        bahanBakuOffline: 15000, kemasanOffline: 2000, operasionalOffline: 3000, marginOffline: 40,
+        hargaJualIklan: 100000, hppIklan: 40000
+      });
+
+      useEffect(() => {
+        // Load data dari penyimpanan memori HP/Browser
+        const loadData = () => {
+          setIsLoadingData(true);
+          try {
+            const localData = localStorage.getItem('omsetProData');
+            if (localData) {
+              const parsed = JSON.parse(localData);
+              if (parsed.savedProducts) setSavedProducts(parsed.savedProducts);
+              if (parsed.webhookUrl) setWebhookUrl(parsed.webhookUrl);
+            }
+          } catch (error) {
+            console.error("Gagal memuat data lokal:", error);
+          }
+          // Animasi loading buatan agar terlihat profesional
+          setTimeout(() => setIsLoadingData(false), 800);
+        };
+        loadData();
+      }, []);
+
+      const saveToLocal = (productsToSave, urlToSave) => {
+        setIsSaving(true);
+        try {
+          localStorage.setItem('omsetProData', JSON.stringify({
+            savedProducts: productsToSave,
+            webhookUrl: urlToSave,
+            updatedAt: new Date().toISOString()
+          }));
+        } catch (error) {
+          console.error("Gagal menyimpan data:", error);
+        }
+        setTimeout(() => setIsSaving(false), 800);
+      };
+
+      const formatRp = (num) => {
+        if (!num || isNaN(num) || !isFinite(num)) return "Rp 0";
+        return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+      };
+
+      const handleNumChange = (field, val) => {
+        setData(prev => ({ ...prev, [field]: val === "" ? "" : parseFloat(val) || 0 }));
+      };
+
+      const handleTextChange = (field, val) => {
+        setData(prev => ({ ...prev, [field]: val }));
+      };
+
+      const formatInput = (num) => {
+        if (num === "" || num === undefined || num === null) return "";
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+      };
+
+      const handleCurrencyChange = (field, val) => {
+        const numericValue = val.replace(/[^0-9]/g, '');
+        setData(prev => ({ ...prev, [field]: numericValue === "" ? "" : parseFloat(numericValue) }));
+      };
+
+      const getResults = () => {
+        const totalPersenFee = (data.adminShopee || 0) + (data.gratisOngkir || 0) + (data.diskonXtra || 0) + (data.komisiAffiliate || 0);
+        let res = { totalPersenFee };
+
+        if (activeTab === 'hpp') {
+          res.hargaJual = data.hargaJual || 0;
+          res.nominalPersenFee = res.hargaJual * (totalPersenFee / 100);
+          res.totalPotongan = res.nominalPersenFee + (data.biayaProses || 0) + (data.voucherToko || 0);
+          res.pendapatanBersih = res.hargaJual - res.totalPotongan;
+          res.totalModal = (data.hppProduk || 0) + (data.biayaLain || 0);
+          res.labaBersih = res.pendapatanBersih - res.totalModal;
+          res.margin = res.hargaJual > 0 ? (res.labaBersih / res.hargaJual) * 100 : 0;
+        } 
+        else if (activeTab === 'hargajual') {
+          res.totalModal = (data.hppProduk || 0) + (data.biayaLain || 0);
+          res.totalTargetDanBiaya = (data.modalTarget || 0) + res.totalModal + (data.biayaProses || 0) + (data.voucherToko || 0);
+          
+          res.hargaJual = Math.ceil(res.totalTargetDanBiaya / (1 - (totalPersenFee / 100)));
+          res.nominalPersenFee = res.hargaJual * (totalPersenFee / 100);
+          res.totalPotongan = res.nominalPersenFee + (data.biayaProses || 0) + (data.voucherToko || 0);
+          res.labaBersih = res.hargaJual - res.totalPotongan - res.totalModal;
+          res.margin = res.hargaJual > 0 ? (res.labaBersih / res.hargaJual) * 100 : 0;
+
+          res.hargaMinimal = Math.ceil(( ((data.modalTarget || 0) * 0.5) + res.totalModal + (data.biayaProses || 0) + (data.voucherToko || 0) ) / (1 - (totalPersenFee / 100)));
+          res.hargaHET = Math.ceil(( ((data.modalTarget || 0) * 2) + res.totalModal + (data.biayaProses || 0) + (data.voucherToko || 0) ) / (1 - (totalPersenFee / 100)));
+        }
+        else if (activeTab === 'offline') {
+          res.hppOffline = (data.bahanBakuOffline || 0) + (data.kemasanOffline || 0) + (data.operasionalOffline || 0);
+          const marginDecimal = Math.min(95, Math.max(1, data.marginOffline || 40)) / 100;
+          res.hargaJualOffline = Math.ceil(res.hppOffline / (1 - marginDecimal));
+          res.labaOffline = res.hargaJualOffline - res.hppOffline;
+          res.marginRealOffline = res.hargaJualOffline > 0 ? (res.labaOffline / res.hargaJualOffline) * 100 : 0;
+          
+          res.hargaGrosirOffline = Math.ceil(res.hargaJualOffline * 0.9);
+          res.labaGrosirOffline = res.hargaGrosirOffline - res.hppOffline;
+        }
+        else if (activeTab === 'carihpp') {
+          res.totalPcs = Math.max(1, (data.jumlahKemasan || 1) * (data.isiPerKemasan || 1));
+          res.hppAwal = (data.hppProduk || 0) / res.totalPcs; 
+          res.totalBiayaDenganAkomodasi = (data.hppProduk || 0) + (data.akomodasi || 0);
+          res.hppAkhir = res.totalBiayaDenganAkomodasi / res.totalPcs;
+          res.simulasiHarga = res.hppAkhir * (data.pengaliMargin || 1);
+        }
+        else if (activeTab === 'iklan') {
+          res.hargaJualIklan = data.hargaJualIklan || 0;
+          res.hppIklan = data.hppIklan || 0;
+          
+          res.nominalAdminIklan = res.hargaJualIklan * ((data.adminShopee || 0) / 100);
+          res.nominalGratisOngkirIklan = res.hargaJualIklan * ((data.gratisOngkir || 0) / 100);
+          res.nominalDiskonXtraIklan = res.hargaJualIklan * ((data.diskonXtra || 0) / 100);
+          res.nominalAffiliateIklan = res.hargaJualIklan * ((data.komisiAffiliate || 0) / 100);
+          
+          res.totalPotonganPersenIklan = res.nominalAdminIklan + res.nominalGratisOngkirIklan + res.nominalDiskonXtraIklan + res.nominalAffiliateIklan;
+          res.totalPotonganFlatIklan = (data.biayaProses || 0) + (data.voucherToko || 0);
+          res.totalPotonganIklan = res.totalPotonganPersenIklan + res.totalPotonganFlatIklan;
+
+          res.labaKotorIklan = res.hargaJualIklan - res.hppIklan - res.totalPotonganIklan;
+          res.roasMinimal = res.labaKotorIklan > 0 ? (res.hargaJualIklan / res.labaKotorIklan) : 0;
+          res.roasAman = res.roasMinimal > 0 ? res.roasMinimal * 1.5 : 0;
+          res.roasBagus = res.roasMinimal > 0 ? res.roasMinimal * 2.5 : 0;
+          res.maxCpa = Math.max(0, res.labaKotorIklan);
+        }
+
+        if (activeTab === 'hpp' || activeTab === 'hargajual') {
+          const normalHargaJual = activeTab === 'hargajual' ? res.hargaJual : (data.hargaJual || 0);
+          const hppSatuan = res.totalModal; 
+          
+          res.nominalAdmin = normalHargaJual * ((data.adminShopee || 0) / 100);
+          res.nominalGratisOngkir = normalHargaJual * ((data.gratisOngkir || 0) / 100);
+          res.nominalDiskonXtra = normalHargaJual * ((data.diskonXtra || 0) / 100);
+          res.nominalAffiliate = normalHargaJual * ((data.komisiAffiliate || 0) / 100);
+
+          res.qtyBundle = Math.max(2, data.qtyBundle || 3);
+          res.hargaBundleSblm = normalHargaJual * res.qtyBundle;
+          res.hargaBundleTotal = Math.floor(res.hargaBundleSblm * (1 - (data.diskonBundle || 0) / 100));
+          res.feeBundle = res.hargaBundleTotal * (totalPersenFee / 100) + (data.biayaProses || 0) + (data.voucherToko || 0);
+          res.modalBundleTotal = hppSatuan * res.qtyBundle;
+          res.labaBundleTotal = res.hargaBundleTotal - res.feeBundle - res.modalBundleTotal;
+
+          res.qtyGrosir = Math.max(2, data.qtyGrosir || 12);
+          res.hargaGrosirSblm = normalHargaJual * res.qtyGrosir;
+          res.hargaGrosirTotalPesanan = Math.floor(res.hargaGrosirSblm * (1 - (data.diskonGrosir || 0) / 100));
+          res.hargaGrosirPerPcs = Math.floor(res.hargaGrosirTotalPesanan / res.qtyGrosir);
+          res.feeGrosir = res.hargaGrosirTotalPesanan * (totalPersenFee / 100) + (data.biayaProses || 0) + (data.voucherToko || 0);
+          res.modalGrosirTotal = hppSatuan * res.qtyGrosir;
+          res.labaGrosirTotal = res.hargaGrosirTotalPesanan - res.feeGrosir - res.modalGrosirTotal;
+          res.labaGrosirPerPcs = res.labaGrosirTotal / res.qtyGrosir;
+        }
+        return res;
+      };
+
+      const results = getResults();
+
+      const getProductHealth = (laba, margin) => {
+        if (laba <= 0) return { title: "Rugi / Boncos", icon: "💀", cls: "text-rose-400 bg-rose-500/10 border-rose-500/50 ring-1 ring-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.2)]" };
+        if (margin < 15) return { title: "Pancingan", icon: "🎣", cls: "text-amber-400 bg-amber-500/10 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]" };
+        if (margin >= 15 && margin < 30) return { title: "Standar", icon: "👍", cls: "text-blue-400 bg-blue-500/10 border-blue-500/30" };
+        return { title: "Sapi Perah", icon: "💰", cls: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.15)]" };
+      };
+
+      const handleSaveProduct = () => {
+        let item = { id: Date.now(), nama: data.namaBarang || `Produk ${savedProducts.length + 1}` };
+        
+        if (activeTab === 'hpp' || activeTab === 'hargajual') {
+          item.hpp = results.totalModal; item.hargaJual = results.hargaJual; item.laba = results.labaBersih; item.margin = results.margin;
+        } else if (activeTab === 'offline') {
+          item.hpp = results.hppOffline; item.hargaJual = results.hargaJualOffline; item.laba = results.labaOffline; item.margin = results.marginRealOffline;
+        } else if (activeTab === 'iklan') {
+          item.hpp = results.hppIklan; item.hargaJual = results.hargaJualIklan; item.laba = results.labaKotorIklan; item.margin = item.hargaJualIklan > 0 ? (item.laba / item.hargaJualIklan) * 100 : 0;
+        } else {
+          item.hpp = results.hppAkhir; item.hargaJual = results.simulasiHarga; item.laba = results.simulasiHarga - results.hppAkhir; item.margin = item.hargaJual > 0 ? (item.laba / item.hargaJual) * 100 : 0;
+        }
+        
+        const newProducts = [...savedProducts, item];
+        setSavedProducts(newProducts);
+        saveToLocal(newProducts, webhookUrl);
+        
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2000);
+      };
+
+      const handleDeleteProduct = (id) => {
+        const newProducts = savedProducts.filter(p => p.id !== id);
+        setSavedProducts(newProducts);
+        saveToLocal(newProducts, webhookUrl);
+      };
+
+      const handleSyncToSheets = async (item) => {
+        if (!webhookUrl) {
+          setSyncStatus('missing_url');
+          setTimeout(() => setSyncStatus(''), 4000);
+          return;
+        }
+        setSyncStatus('syncing');
+        try {
+          const payload = { nama: item.nama, hpp: item.hpp, hargaJual: item.hargaJual, laba: item.laba, margin: item.margin.toFixed(1) + '%' };
+          await fetch(webhookUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          setSyncStatus('success');
+          setTimeout(() => setSyncStatus(''), 3000);
+        } catch (error) {
+          console.error(error);
+          setSyncStatus('error');
+          setTimeout(() => setSyncStatus(''), 3000);
+        }
+      };
+
+      const handleCopyReport = () => {
+        let text = `*📊 LAPORAN PRODUK UMKM*\n🏷️ Produk: ${data.namaBarang || 'Tanpa Nama'}\n`;
+        if (activeTab === 'carihpp') {
+          text += `📦 Total Barang: ${results.totalPcs} Pcs\n💰 HPP Kulakan per Pcs: ${formatRp(results.hppAkhir)}\n🎯 Simulasi Jual (${data.pengaliMargin}x): ${formatRp(results.simulasiHarga)}\n`;
+        } else if (activeTab === 'offline') {
+          text += `🏬 Tipe Penjualan: Jual Offline / Toko Fisik\n📦 HPP Produk Offline: ${formatRp(results.hppOffline)}\n💵 Rekomendasi Jual Toko: ${formatRp(results.hargaJualOffline)}\n✅ Keuntungan Bersih: ${formatRp(results.labaOffline)} (${results.marginRealOffline.toFixed(1)}%)\n`;
+        } else if (activeTab === 'iklan') {
+          text += `📢 LAPORAN TARGET IKLAN\n💵 Harga Jual: ${formatRp(results.hargaJualIklan)}\n📦 HPP & Modal: ${formatRp(results.hppIklan)}\n🛑 Biaya Admin & Lainya: ${formatRp(results.totalPotonganIklan)}\n💸 Max Biaya Iklan (Max CPA): ${formatRp(results.maxCpa)}\n🎯 Target ROAS Aman: ${results.roasAman > 0 ? results.roasAman.toFixed(2) + 'x' : 'Minus'}\n`;
+        } else {
+          text += `💵 Harga Jual Shopee: ${formatRp(results.hargaJual)}\n📦 Total Modal/HPP: ${formatRp(results.totalModal)}\n💸 Total Potongan Platform: ${formatRp(results.totalPotongan)}\n✅ Laba Bersih: ${formatRp(results.labaBersih)} (${results.margin.toFixed(1)}%)\n`;
+        }
+        navigator.clipboard.writeText(text);
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      };
+
+      const getTheme = () => {
+        if (activeTab === 'hpp') return { border: 'border-orange-500/30', activeTab: 'bg-orange-500/20 text-orange-400 border-orange-500/50' };
+        if (activeTab === 'hargajual') return { border: 'border-emerald-500/30', activeTab: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' };
+        if (activeTab === 'offline') return { border: 'border-sky-500/30', activeTab: 'bg-sky-500/20 text-sky-400 border-sky-500/50' };
+        if (activeTab === 'carihpp') return { border: 'border-violet-500/30', activeTab: 'bg-violet-500/20 text-violet-400 border-violet-500/50' };
+        if (activeTab === 'iklan') return { border: 'border-pink-500/30', activeTab: 'bg-pink-500/20 text-pink-400 border-pink-500/50' };
+        return { border: 'border-blue-500/30', activeTab: 'bg-blue-500/20 text-blue-400 border-blue-500/50' };
+      };
+      const theme = getTheme();
+
+      if (isLoadingData) {
+        return (
+          <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center font-sans">
+            <div className="w-16 h-16 border-4 border-zinc-800 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+            <h2 className="text-xl font-bold text-zinc-200 animate-pulse">Memuat Data Tersimpan...</h2>
+            <p className="text-sm text-zinc-500 mt-2">Mempersiapkan Kalkulator</p>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-zinc-950 flex justify-center p-2 sm:p-4 md:p-6 font-sans text-zinc-200 relative">
+          <div className={`absolute top-4 right-4 z-50 px-4 py-2 rounded-full font-bold text-xs shadow-lg transition-all duration-300 ${isSaving ? 'bg-blue-600 text-white opacity-100 translate-y-0' : 'bg-zinc-800 text-zinc-400 opacity-0 -translate-y-4 pointer-events-none'}`}>
+            {isSaving ? '⏳ Menyimpan Otomatis...' : '✅ Tersimpan'}
+          </div>
+
+          <div className="max-w-7xl w-full bg-zinc-900 rounded-3xl shadow-2xl shadow-black flex flex-col xl:flex-row overflow-hidden border border-zinc-800">
+            
+            <div className="flex-1 flex flex-col h-full xl:max-h-[92vh]">
+              <div className="p-4 sm:p-6 pb-0 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md">
+                <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2 mb-5">
+                  <span className="text-xl">🏪</span> OmsetPro <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full">Online & Offline</span>
+                </h1>
+                
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl mb-5 overflow-x-auto hide-scrollbar snap-x border border-zinc-800 gap-1">
+                  <button onClick={() => setActiveTab('hpp')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'hpp' ? theme.activeTab : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>Cari Laba</button>
+                  <button onClick={() => setActiveTab('hargajual')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'hargajual' ? theme.activeTab : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>Set Harga Jual</button>
+                  <button onClick={() => setActiveTab('iklan')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'iklan' ? theme.activeTab : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>📢 ROAS Iklan</button>
+                  <button onClick={() => setActiveTab('offline')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'offline' ? theme.activeTab : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>🏬 Jual Offline</button>
+                  <button onClick={() => setActiveTab('carihpp')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'carihpp' ? theme.activeTab : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>Hitung Modal</button>
+                  <button onClick={() => setActiveTab('komparasi')} className={`snap-center flex-1 min-w-[100px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all whitespace-nowrap border ${activeTab === 'komparasi' ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'}`}>📊 Komparasi</button>
+                </div>
+              </div>
+
+              {}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-zinc-900/50 custom-scrollbar pb-24">
+                
+                {activeTab === 'komparasi' ? (
+                  <div className="space-y-6 pb-10">
+                    <div className="bg-zinc-950 border border-blue-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden group hover:border-blue-500/50 transition-colors">
+                      <div className="absolute -right-6 -top-6 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl"></div>
+                      <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-1 flex items-center justify-between">
+                        <span>🔗 Integrasi Google Sheets</span>
+                        {webhookUrl && <span className="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded text-[9px]">Tersambung</span>}
+                      </h3>
+                      <p className="text-xs text-zinc-400 mb-3">Masukkan Webhook URL Google Apps Script Anda untuk mencatat produk tersimpan otomatis ke Spreadsheet.</p>
+                      <input 
+                        type="text" 
+                        value={webhookUrl} 
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        onBlur={() => saveToLocal(savedProducts, webhookUrl)}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 outline-none text-zinc-200 text-xs font-mono focus:border-blue-500/50"
+                      />
+                      {syncStatus === 'missing_url' && <p className="text-xs text-amber-400 mt-2 font-semibold flex items-center gap-1">⚠ Anda belum memasukkan Webhook URL!</p>}
+                      {syncStatus === 'syncing' && <p className="text-xs text-blue-400 mt-2 font-semibold flex items-center gap-1"><span className="animate-spin inline-block">⏳</span> Mengirim data ke Sheets...</p>}
+                      {syncStatus === 'success' && <p className="text-xs text-emerald-400 mt-2 font-semibold">✅ Data berhasil masuk ke Google Sheets!</p>}
+                      {syncStatus === 'error' && <p className="text-xs text-rose-400 mt-2 font-semibold">❌ Gagal mengirim. Periksa Webhook URL Anda.</p>}
+                    </div>
+
+                    {savedProducts.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center text-zinc-500 py-16 border border-dashed border-zinc-700 rounded-3xl bg-zinc-900/50">
+                        <div className="text-5xl mb-4 opacity-50">📭</div>
+                        <p className="text-sm font-bold">Belum ada produk yang disimpan.</p>
+                        <p className="text-xs mt-1">Cari hpp/harga jual di tab lain lalu klik tombol simpan.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {savedProducts.filter(p => p.laba > 0).sort((a,b) => b.laba - a.laba)[0] && (
+                            <div className="bg-gradient-to-br from-emerald-900/40 to-zinc-900 border border-emerald-500/30 rounded-2xl p-5 flex gap-4 shadow-[0_0_20px_rgba(16,185,129,0.05)] relative overflow-hidden">
+                              <div className="text-4xl drop-shadow-lg z-10 animate-bounce">💰</div>
+                              <div className="z-10">
+                                <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Produk Sapi Perah Utama</div>
+                                <div className="font-black text-white text-lg mt-0.5">{savedProducts.filter(p => p.laba > 0).sort((a,b) => b.laba - a.laba)[0].nama}</div>
+                                <div className="text-xs text-zinc-400 mt-1">Laba terbesar: <span className="font-bold text-emerald-400">{formatRp(savedProducts.filter(p => p.laba > 0).sort((a,b) => b.laba - a.laba)[0].laba)}</span>/pcs</div>
+                              </div>
+                            </div>
+                          )}
+                          {savedProducts.filter(p => p.margin > 0 && p.margin <= 15).length > 0 && (
+                            <div className="bg-gradient-to-br from-amber-900/40 to-zinc-900 border border-amber-500/30 rounded-2xl p-5 flex gap-4 shadow-[0_0_20px_rgba(245,158,11,0.05)] relative overflow-hidden">
+                              <div className="text-4xl drop-shadow-lg z-10">🎣</div>
+                              <div className="z-10">
+                                <div className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Produk Pancingan Traffic</div>
+                                <div className="font-black text-white text-sm mt-0.5 line-clamp-1">{savedProducts.filter(p => p.margin > 0 && p.margin <= 15).slice(0, 2).map(p => p.nama).join(", ")}</div>
+                                <div className="text-xs text-zinc-400 mt-1">Margin {'<'} 15%. Cocok untuk promo/Flash Sale.</div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 mt-6">
+                          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Semua Produk Tersimpan ({savedProducts.length})</h3>
+                          {savedProducts.map((item) => {
+                            const health = getProductHealth(item.laba, item.margin);
+                            return (
+                              <div key={item.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-zinc-700 transition-colors">
+                                <div className="flex items-center gap-4">
+                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl bg-zinc-950 border ${health.cls.split(' ')[2]}`}>
+                                    {health.icon}
+                                  </div>
+                                  <div>
+                                    <h4 className="font-bold text-zinc-100">{item.nama}</h4>
+                                    <div className="text-xs text-zinc-500 flex gap-3 mt-1">
+                                      <span>Modal: {formatRp(item.hpp)}</span>
+                                      <span>Jual: {formatRp(item.hargaJual)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center justify-between sm:justify-end gap-4 sm:w-1/2">
+                                  <div className="text-right">
+                                    <div className="text-[10px] font-bold text-zinc-500 uppercase">Laba Bersih</div>
+                                    <div className={`font-black ${item.laba > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatRp(item.laba)}</div>
+                                  </div>
+
+                                  <button 
+                                    onClick={() => handleSyncToSheets(item)}
+                                    title="Kirim ke Google Sheets"
+                                    className="bg-blue-600/20 border border-blue-500/40 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                                  >
+                                    <span>📤 Sheets</span>
+                                  </button>
+
+                                  <button onClick={() => handleDeleteProduct(item.id)} className="text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 p-2 rounded-lg transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-6 max-w-3xl mx-auto xl:mx-0 pb-10">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-zinc-400">🏷 Nama Produk / Varian</label>
+                      <input 
+                        type="text" value={data.namaBarang} onChange={(e) => handleTextChange('namaBarang', e.target.value)}
+                        className={`w-full bg-zinc-950 border ${theme.border} rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold focus:ring-1 focus:ring-opacity-50 transition-all ${theme.activeTab.split(' ')[2]}`}
+                        placeholder="Contoh: Kripik Singkong Balado..."
+                      />
+                    </div>
+
+                    {}
+                    {activeTab === 'iklan' ? (
+                      <div className="space-y-6 bg-zinc-950/50 p-5 rounded-2xl border border-pink-500/30">
+                        <div className="bg-pink-500/10 border border-pink-500/30 p-3.5 rounded-xl text-pink-300 text-xs flex gap-3 items-center">
+                          <span className="text-xl">📢</span>
+                          <div>
+                            <strong className="block font-bold">Kalkulator ROAS Iklan</strong>
+                            Hitung batas aman biaya iklan (Max CPA) dan target ROAS agar tidak boncos.
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">💵 Harga Jual (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.hargaJualIklan)} onChange={(e) => handleCurrencyChange('hargaJualIklan', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">📦 Total HPP / Modal (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.hppIklan)} onChange={(e) => handleCurrencyChange('hppIklan', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-zinc-800">
+                          <h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2 mb-3">💸 Rincian Potongan Biaya Platform</h3>
+                          
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Admin Kategori</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.adminShopee} onChange={(e) => handleNumChange('adminShopee', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalAdminIklan || 0)}</span>
+                                </div>
+                             </div>
+                             
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Gratis Ongkir</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.gratisOngkir} onChange={(e) => handleNumChange('gratisOngkir', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalGratisOngkirIklan || 0)}</span>
+                                </div>
+                             </div>
+
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Promo Xtra</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.diskonXtra} onChange={(e) => handleNumChange('diskonXtra', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalDiskonXtraIklan || 0)}</span>
+                                </div>
+                             </div>
+
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Affiliate</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.komisiAffiliate} onChange={(e) => handleNumChange('komisiAffiliate', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalAffiliateIklan || 0)}</span>
+                                </div>
+                             </div>
+                          </div>
+
+                          <div className="pt-4 mt-4 border-t border-zinc-800">
+                            <h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2 mb-3">🧾 Biaya Lain (Nominal Flat)</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[10px] font-semibold text-zinc-400 uppercase">Biaya Proses (Rp)</label>
+                                <input type="text" inputMode="numeric" value={formatInput(data.biayaProses)} onChange={(e) => handleCurrencyChange('biayaProses', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold text-sm" />
+                              </div>
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[10px] font-semibold text-zinc-400 uppercase">Voucher/Subsidi (Rp)</label>
+                                <input type="text" inputMode="numeric" value={formatInput(data.voucherToko)} onChange={(e) => handleCurrencyChange('voucherToko', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold text-sm" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : activeTab === 'carihpp' ? (
+                      <div className="space-y-6 bg-zinc-950/50 p-5 rounded-2xl border border-zinc-800">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Jml Pembelian (Bal/Dus/Pcs)</label>
+                            <input type="number" value={data.jumlahKemasan} onChange={(e) => handleNumChange('jumlahKemasan', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Isi Pcs per Bal/Dus</label>
+                            <input type="number" value={data.isiPerKemasan} onChange={(e) => handleNumChange('isiPerKemasan', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                            <span className="text-[10px] text-zinc-500">Ketik 1 jika beli ecer (satuan)</span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                           <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Total Tagihan Barang (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.hppProduk)} onChange={(e) => handleCurrencyChange('hppProduk', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Biaya Akomodasi/Ongkir (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.akomodasi)} onChange={(e) => handleCurrencyChange('akomodasi', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                        </div>
+                        <div className="pt-4 border-t border-zinc-800">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-300">🎯 Pengali Margin (Ingin jual berapa X lipat?)</label>
+                            <input type="number" value={data.pengaliMargin} onChange={(e) => handleNumChange('pengaliMargin', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : activeTab === 'offline' ? (
+                      <div className="space-y-6 bg-zinc-950/50 p-5 rounded-2xl border border-sky-500/30">
+                        <div className="bg-sky-500/10 border border-sky-500/30 p-3.5 rounded-xl text-sky-300 text-xs flex gap-3 items-center">
+                          <span className="text-xl">🏬</span>
+                          <div>
+                            <strong className="block font-bold">Kalkulator Penjualan Offline / Toko Fisik</strong>
+                            Hitung HPP mandiri tanpa potongan admin marketplace, namun masukkan biaya operasional.
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Bahan Baku (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.bahanBakuOffline)} onChange={(e) => handleCurrencyChange('bahanBakuOffline', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Kemasan (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.kemasanOffline)} onChange={(e) => handleCurrencyChange('kemasanOffline', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-400">Operasional / Pcs (Rp)</label>
+                            <input type="text" inputMode="numeric" value={formatInput(data.operasionalOffline)} onChange={(e) => handleCurrencyChange('operasionalOffline', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-zinc-800">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs font-semibold text-zinc-300">📈 Target Margin Keuntungan Toko (%)</label>
+                            <input type="number" value={data.marginOffline} onChange={(e) => handleNumChange('marginOffline', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-sky-400 font-black text-base" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className={`p-5 rounded-2xl border border-zinc-800 relative overflow-hidden`}>
+                          <div className={`absolute inset-0 opacity-5 ${theme.activeTab.split(' ')[0]}`}></div>
+                          <div className="relative z-10 flex flex-col gap-1.5">
+                            <label className="text-sm font-bold text-zinc-200">
+                              {activeTab === 'hpp' ? '💵 Harga Jual Produk Saat Ini (Rp)' : '🎯 Target Laba Bersih yg Diinginkan (Rp)'}
+                            </label>
+                            <input 
+                              type="text" inputMode="numeric" 
+                              value={formatInput(activeTab === 'hpp' ? data.hargaJual : data.modalTarget)} 
+                              onChange={(e) => handleCurrencyChange(activeTab === 'hpp' ? 'hargaJual' : 'modalTarget', e.target.value)}
+                              className={`w-full bg-zinc-900/80 border ${theme.border} rounded-xl px-4 py-4 text-lg outline-none text-zinc-100 font-black focus:border-zinc-500 transition-all`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-zinc-950/50 p-5 rounded-2xl border border-zinc-800 space-y-5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-zinc-400">📦 Modal Beli / HPP (Rp)</label>
+                              <input type="text" inputMode="numeric" value={formatInput(data.hppProduk)} onChange={(e) => handleCurrencyChange('hppProduk', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-zinc-400">✂️ Biaya Lain/Packing (Rp)</label>
+                              <input type="text" inputMode="numeric" value={formatInput(data.biayaLain)} onChange={(e) => handleCurrencyChange('biayaLain', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-zinc-950/50 p-5 rounded-2xl border border-zinc-800 space-y-4">
+                          <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">💸 Rincian Potongan Biaya Platform</h3>
+                          
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Admin Kategori</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.adminShopee} onChange={(e) => handleNumChange('adminShopee', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalAdmin || 0)}</span>
+                                </div>
+                             </div>
+                             
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Gratis Ongkir</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.gratisOngkir} onChange={(e) => handleNumChange('gratisOngkir', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalGratisOngkir || 0)}</span>
+                                </div>
+                             </div>
+
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Promo Xtra</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.diskonXtra} onChange={(e) => handleNumChange('diskonXtra', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalDiskonXtra || 0)}</span>
+                                </div>
+                             </div>
+
+                             <div className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <label className="text-[10px] font-semibold text-zinc-400 uppercase">Affiliate</label>
+                                    <div className="relative mt-1.5">
+                                        <input type="number" value={data.komisiAffiliate} onChange={(e) => handleNumChange('komisiAffiliate', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-2 outline-none text-zinc-100 font-bold text-sm pr-6" />
+                                        <span className="absolute right-2.5 top-2.5 text-[10px] text-zinc-500 font-bold">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] mt-2.5 pt-2.5 border-t border-zinc-800/50 text-right">
+                                    <span className="font-bold text-rose-400">-{formatRp(results.nominalAffiliate || 0)}</span>
+                                </div>
+                             </div>
+                          </div>
+
+                          <div className="pt-4 border-t border-zinc-800">
+                            <h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2 mb-3">🧾 Biaya Lain (Nominal Flat)</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[10px] font-semibold text-zinc-400 uppercase">Biaya Proses Pesanan (Rp)</label>
+                                <input type="text" inputMode="numeric" value={formatInput(data.biayaProses)} onChange={(e) => handleCurrencyChange('biayaProses', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold text-sm" />
+                              </div>
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[10px] font-semibold text-zinc-400 uppercase">Voucher Toko/Subsidi (Rp)</label>
+                                <input type="text" inputMode="numeric" value={formatInput(data.voucherToko)} onChange={(e) => handleCurrencyChange('voucherToko', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 outline-none text-zinc-100 font-bold text-sm" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 p-5 rounded-2xl border border-zinc-800 space-y-4">
+                          <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">📦 Strategi Bundling & Grosir</h3>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-3 bg-zinc-900/50 p-3 rounded-xl border border-zinc-800/80">
+                               <h4 className="text-[10px] font-bold text-zinc-400 uppercase">🎁 Paket Bundling</h4>
+                               <div className="flex flex-col gap-1.5">
+                                 <label className="text-[10px] text-zinc-500">Jumlah Qty</label>
+                                 <input type="number" value={data.qtyBundle} onChange={(e) => handleNumChange('qtyBundle', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 outline-none text-zinc-200 text-sm" />
+                               </div>
+                               <div className="flex flex-col gap-1.5">
+                                 <label className="text-[10px] text-zinc-500">Diskon (%)</label>
+                                 <input type="number" value={data.diskonBundle} onChange={(e) => handleNumChange('diskonBundle', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 outline-none text-zinc-200 text-sm" />
+                               </div>
+                            </div>
+
+                            <div className="space-y-3 bg-zinc-900/50 p-3 rounded-xl border border-zinc-800/80">
+                               <h4 className="text-[10px] font-bold text-zinc-400 uppercase">🏷️ Harga Grosir</h4>
+                               <div className="flex flex-col gap-1.5">
+                                 <label className="text-[10px] text-zinc-500">Min. Beli Qty</label>
+                                 <input type="number" value={data.qtyGrosir} onChange={(e) => handleNumChange('qtyGrosir', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 outline-none text-zinc-200 text-sm" />
+                               </div>
+                               <div className="flex flex-col gap-1.5">
+                                 <label className="text-[10px] text-zinc-500">Diskon (%)</label>
+                                 <input type="number" value={data.diskonGrosir} onChange={(e) => handleNumChange('diskonGrosir', e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 outline-none text-zinc-200 text-sm" />
+                               </div>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {}
+            {activeTab !== 'komparasi' && (
+              <div className={`w-full xl:w-[400px] bg-zinc-950 flex flex-col relative overflow-hidden border-t xl:border-t-0 xl:border-l border-zinc-800 z-10 transition-colors duration-500 ${results.labaBersih <= 0 && activeTab === 'hpp' ? 'shadow-[inset_0_0_100px_rgba(220,38,38,0.05)]' : ''}`}>
+                
+                <div className="flex-1 p-6 sm:p-8 overflow-y-auto custom-scrollbar">
+                  <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Live Report</div>
+                  <h2 className="text-xl font-black text-white mb-6 border-b border-zinc-800 pb-4">
+                    {activeTab === 'carihpp' ? 'Ringkasan Kulakan' : activeTab === 'offline' ? 'Analisis Toko Fisik' : activeTab === 'iklan' ? 'Target & Limit Iklan' : 'Analisis Margin & Penjualan'}
+                  </h2>
+
+                  {activeTab === 'carihpp' ? (
+                    <div className="space-y-5">
+                      <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex justify-between items-center">
+                         <div>
+                            <div className="text-[10px] text-zinc-500 uppercase font-bold">Rincian Pembelian</div>
+                            <div className="text-sm font-bold text-zinc-300 mt-0.5">{data.jumlahKemasan || 0} Kemasan × {data.isiPerKemasan || 1} Pcs</div>
+                         </div>
+                      </div>
+                      <div className="flex justify-between items-end border-b border-zinc-800/50 pb-3 mt-4">
+                        <div className="text-sm text-zinc-400">Total Barang Didapat</div>
+                        <div className="font-bold text-lg text-zinc-200">{results.totalPcs} <span className="text-xs text-zinc-500 font-normal">Pcs</span></div>
+                      </div>
+                      <div className="flex justify-between items-end border-b border-zinc-800/50 pb-3">
+                        <div className="text-sm text-zinc-400">HPP Awal <span className="text-[10px] block opacity-60">(Tanpa Ongkir)</span></div>
+                        <div className="font-bold text-zinc-300">{formatRp(results.hppAwal)}</div>
+                      </div>
+                      
+                      <div className={`mt-6 p-5 rounded-2xl border ${theme.border} ${theme.activeTab} relative overflow-hidden group`}>
+                        <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Modal Final / Pcs</div>
+                        <div className="text-3xl font-black mt-1">{formatRp(results.hppAkhir)}</div>
+                      </div>
+
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mt-4">
+                        <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Simulasi Jual ({data.pengaliMargin}x Margin)</div>
+                        <div className="text-xl font-black text-white mt-1">{formatRp(results.simulasiHarga)}</div>
+                      </div>
+                    </div>
+                  ) : activeTab === 'offline' ? (
+                    <div className="space-y-5">
+                      <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-zinc-800/80">
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Bahan Baku</span> <span className="font-semibold text-zinc-300">{formatRp(data.bahanBakuOffline)}</span></div>
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Kemasan / Plastik</span> <span className="font-semibold text-zinc-300">{formatRp(data.kemasanOffline)}</span></div>
+                        <div className="flex justify-between text-xs text-zinc-400 pt-2 border-t border-zinc-800/50"><span>Operasional</span> <span className="font-semibold text-zinc-300">{formatRp(data.operasionalOffline)}</span></div>
+                      </div>
+
+                      <div className="flex justify-between items-end border-b border-zinc-800/50 pb-3">
+                        <div className="text-sm text-zinc-400">Total HPP Offline / Pcs</div>
+                        <div className="font-bold text-lg text-sky-400">{formatRp(results.hppOffline)}</div>
+                      </div>
+
+                      <div className="p-5 rounded-2xl border border-sky-500/40 bg-sky-500/10 relative overflow-hidden">
+                        <div className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Rekomendasi Harga Jual</div>
+                        <div className="text-3xl font-black text-white mt-1">{formatRp(results.hargaJualOffline)}</div>
+                        <div className="text-xs font-semibold text-sky-300 mt-2 bg-black/20 inline-block px-2 py-1 rounded-md">Laba: {formatRp(results.labaOffline)} ({results.marginRealOffline.toFixed(1)}%)</div>
+                      </div>
+
+                      <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl mt-4">
+                        <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">🏷️ Harga Grosir (Diskon 10%)</div>
+                        <div className="flex justify-between items-end mt-1">
+                          <div className="text-lg font-black text-white">{formatRp(results.hargaGrosirOffline)} <span className="text-xs font-normal text-zinc-500">/ pcs</span></div>
+                          <div className="text-xs font-bold text-emerald-400">Laba: {formatRp(results.labaGrosirOffline)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : activeTab === 'iklan' ? (
+                    <div className="space-y-6">
+                      <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-zinc-800/80">
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Harga Jual</span> <span className="font-semibold text-zinc-300">{formatRp(results.hargaJualIklan)}</span></div>
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Modal (HPP)</span> <span className="font-semibold text-rose-400">-{formatRp(results.hppIklan)}</span></div>
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Total Admin & Potongan</span> <span className="font-semibold text-rose-400">-{formatRp(results.totalPotonganIklan)}</span></div>
+                        <div className="flex justify-between text-sm text-zinc-200 pt-3 border-t border-zinc-800/50 font-bold"><span>Margin Kotor (Sblm Iklan)</span> <span className="text-emerald-400">{formatRp(results.labaKotorIklan)}</span></div>
+                      </div>
+
+                      <div className="p-5 rounded-2xl border border-pink-500/40 bg-pink-500/10 relative overflow-hidden shadow-[0_0_20px_rgba(236,72,153,0.1)]">
+                        <div className="text-[10px] font-bold text-pink-400 uppercase tracking-widest">Biaya Iklan Maks (Max CPA)</div>
+                        <div className="text-3xl font-black text-white mt-1">{formatRp(results.maxCpa)}</div>
+                        <div className="text-xs text-pink-300 mt-2 opacity-80">Jika biaya per konversi melebihi angka ini, Anda RUGI!</div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 mt-4">
+                         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                            <div>
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-1">ROAS BEP (Titik Impas)</div>
+                              <div className="text-xs text-zinc-400">Tidak Untung, Tidak Rugi</div>
+                            </div>
+                            <div className="text-xl font-black text-amber-400">{results.roasMinimal > 0 ? results.roasMinimal.toFixed(2) + 'x' : 'N/A'}</div>
+                         </div>
+                         
+                         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                            <div>
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-1">ROAS Aman (Target Ideal)</div>
+                              <div className="text-xs text-zinc-400">Laba mulai terasa</div>
+                            </div>
+                            <div className="text-xl font-black text-blue-400">{results.roasAman > 0 ? results.roasAman.toFixed(2) + 'x' : 'N/A'}</div>
+                         </div>
+
+                         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex items-center justify-between shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+                            <div>
+                              <div className="text-[10px] text-emerald-500/70 uppercase font-bold tracking-wider mb-1">ROAS Sangat Baik (Scale Up)</div>
+                              <div className="text-xs text-zinc-400">Gas terus iklannya!</div>
+                            </div>
+                            <div className="text-xl font-black text-emerald-400">{results.roasBagus > 0 ? results.roasBagus.toFixed(2) + 'x' : 'N/A'}</div>
+                         </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      
+                      <div className="grid grid-cols-2 gap-3 mb-6">
+                        <div className={`p-3.5 rounded-xl border ${getProductHealth(results.labaBersih, results.margin).cls} bg-opacity-20 backdrop-blur-sm relative overflow-hidden transition-all duration-300`}>
+                          <div className="text-2xl mb-1">{getProductHealth(results.labaBersih, results.margin).icon}</div>
+                          <div className="text-[9px] font-bold uppercase tracking-widest opacity-60">Status Profit</div>
+                          <div className="font-black text-sm mt-0.5">{getProductHealth(results.labaBersih, results.margin).title}</div>
+                        </div>
+                        <div className={`p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/50 bg-opacity-20 backdrop-blur-sm relative group transition-all duration-300`}>
+                          <div className="text-2xl mb-1">📢</div>
+                          <div className="text-[9px] font-bold uppercase tracking-widest opacity-60">Target Iklan</div>
+                          <div className="font-black text-sm mt-0.5 text-zinc-300">Cek Tab Iklan</div>
+                          <div className="text-[10px] font-semibold mt-1 opacity-80 text-zinc-500">Hitung Max CPA & ROAS</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-zinc-800/80">
+                        <div className="flex justify-between text-xs text-zinc-400"><span>Modal + Biaya per Pcs</span> <span className="font-semibold text-zinc-300">{formatRp(results.totalModal)}</span></div>
+                        <div className="flex justify-between text-xs text-zinc-400 pt-2 border-t border-zinc-800/50"><span>Fee Platform Satuan ({results.totalPersenFee}%)</span> <span className="font-semibold text-rose-400">-{formatRp(results.totalPotongan)}</span></div>
+                      </div>
+
+                      {activeTab === 'hpp' ? (
+                        <div className={`p-5 rounded-2xl mt-6 border ${results.labaBersih > 0 ? theme.border + ' ' + theme.activeTab : 'bg-rose-500/10 border-rose-500 text-rose-500 ring-2 ring-rose-500/20 shadow-[0_0_30px_rgba(244,63,94,0.15)]'} relative overflow-hidden`}>
+                          {results.labaBersih <= 0 && <div className="absolute top-2 right-3 text-xs font-black tracking-widest animate-pulse">⚠ WARNING</div>}
+                          <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Laba Bersih / Pcs</div>
+                          <div className="text-3xl font-black mt-1 break-words">{formatRp(results.labaBersih)}</div>
+                          <div className="text-xs font-bold opacity-90 mt-2 bg-black/20 inline-block px-2 py-1 rounded-md">Margin: {results.margin.toFixed(1)}%</div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className={`p-5 rounded-2xl border ${theme.border} ${theme.activeTab} relative overflow-hidden`}>
+                            <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Harga Jual Ideal</div>
+                            <div className="text-3xl font-black mt-1">{formatRp(results.hargaJual)}</div>
+                            <div className="text-[10px] font-semibold opacity-90 mt-2 bg-black/20 inline-block px-2 py-1 rounded-md">Laba Target: {formatRp(data.modalTarget)}</div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 mt-4">
+                             <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-xl text-center">
+                                <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">Promo Min. (Diskon 50%)</div>
+                                <div className="text-sm font-bold text-zinc-200 mt-1">{formatRp(results.hargaMinimal)}</div>
+                             </div>
+                             <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-xl text-center">
+                                <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">HET Maks (Laba 200%)</div>
+                                <div className="text-sm font-bold text-emerald-400 mt-1">{formatRp(results.hargaHET)}</div>
+                             </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-8 space-y-3">
+                        <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800 pb-2 flex justify-between">
+                           <span>🎁 Skema Bundling</span>
+                           <span className="text-emerald-500 text-[10px]">Hemat Biaya Flat!</span>
+                        </h3>
+                        
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
+                             <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+                                 Paket {results.qtyBundle} Pcs (Diskon {data.diskonBundle}%)
+                             </div>
+                             <div className="flex justify-between items-end mt-2">
+                                 <div>
+                                     <div className="text-sm font-black text-white">{formatRp(results.hargaBundleTotal)}</div>
+                                     <div className="text-[10px] text-zinc-500 line-through">{formatRp(results.hargaBundleSblm)}</div>
+                                 </div>
+                                 <div className="text-right">
+                                     <div className="text-[10px] text-zinc-500">Laba Total Paket</div>
+                                     <div className={`text-sm font-bold ${results.labaBundleTotal > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                         {formatRp(results.labaBundleTotal)}
+                                     </div>
+                                 </div>
+                             </div>
+                        </div>
+
+                        <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800 pb-2 mt-6">
+                           <span>📦 Skema Grosir</span>
+                        </h3>
+
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
+                             <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+                                 Harga Min. {results.qtyGrosir} Pcs (Diskon {data.diskonGrosir}%)
+                             </div>
+                             <div className="flex justify-between items-end mt-2">
+                                 <div>
+                                     <div className="text-sm font-black text-white">{formatRp(results.hargaGrosirPerPcs)} <span className="text-[10px] font-normal text-zinc-500">/ pcs</span></div>
+                                     <div className="text-[10px] text-zinc-500">Min. tagihan: {formatRp(results.hargaGrosirTotalPesanan)}</div>
+                                 </div>
+                                 <div className="text-right">
+                                     <div className="text-[10px] text-zinc-500">Laba / Pcs</div>
+                                     <div className={`text-sm font-bold ${results.labaGrosirPerPcs > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                         {formatRp(results.labaGrosirPerPcs)}
+                                     </div>
+                                 </div>
+                             </div>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-6 bg-zinc-950 border-t border-zinc-900 space-y-3 z-20">
+                  <button
+                    onClick={handleSaveProduct}
+                    className={`w-full py-3.5 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${saveSuccess ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : `bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700`}`}
+                  >
+                    {saveSuccess ? '✅ Berhasil Disimpan' : '💾 Simpan ke Perbandingan'}
+                  </button>
+                  
+                  <button
+                    onClick={handleCopyReport}
+                    className={`w-full py-3.5 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${copySuccess ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-transparent hover:bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-300'}`}
+                  >
+                    {copySuccess ? '✅ Rincian Disalin!' : '📋 Salin Semua Laporan'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<OmsetProApp />);
+  </script>
+</body>
+</html>

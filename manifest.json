@@ -1,0 +1,21 @@
+{
+"short_name": "OmsetPro",
+"name": "OmsetPro: Kalkulator HPP & Profit UMKM",
+"description": "Aplikasi untuk menghitung Harga Jual, HPP, ROAS Iklan, dan Profit Toko Online & Offline.",
+"icons": [
+{
+"src": "logo192.png",
+"type": "image/png",
+"sizes": "192x192"
+},
+{
+"src": "logo512.png",
+"type": "image/png",
+"sizes": "512x512"
+}
+],
+"start_url": "./index.html",
+"display": "standalone",
+"theme_color": "#09090b",
+"background_color": "#09090b"
+}
